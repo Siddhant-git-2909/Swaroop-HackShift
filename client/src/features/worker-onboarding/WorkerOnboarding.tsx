@@ -26,6 +26,7 @@ export const WorkerOnboarding: React.FC<WorkerOnboardingProps> = ({ onProfileCre
   const [loading, setLoading] = useState(false);
   const [transcribing, setTranscribing] = useState(false);
   const [transcribeNote, setTranscribeNote] = useState<string>('');
+  const [processError, setProcessError] = useState('');
 
   // MediaRecorder refs
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
@@ -102,9 +103,11 @@ export const WorkerOnboarding: React.FC<WorkerOnboardingProps> = ({ onProfileCre
           } else {
             setTranscribeNote(res.note || 'Sarvam STT returned no transcript. Please type below or try the sample.');
           }
-        } catch (err: any) {
-          console.warn('Sarvam transcription fallback:', err);
-          setTranscribeNote('Microphone recording processed. You can review or edit the text below.');
+        } catch (error) {
+          console.warn('Voice transcription failed:', error);
+          setTranscribeNote(
+            'Voice transcription failed. Please try recording again or enter your details manually.'
+          );
         } finally {
           setTranscribing(false);
         }
@@ -134,24 +137,30 @@ export const WorkerOnboarding: React.FC<WorkerOnboardingProps> = ({ onProfileCre
   };
 
   const handleProcessInput = async () => {
-    if (!inputText.trim()) return;
-    setLoading(true);
-    try {
-      const res = await api.textDraft(inputText);
-      const draft = res.draft;
+  if (!inputText.trim() || loading) return;
 
-      setDraftName(draft.sample_name || 'Rajesh Kumar');
-      setDraftHeadline(draft.headline || 'Experienced Skilled Technician');
-      setDraftCoreSkills(draft.core_skills || ['electrician']);
-      setDraftExperience(draft.experience_years || 5);
-      setDraftAreaId(draft.area_id || 'area-1');
-      setStep('review');
-    } catch (e) {
-      console.error(e);
-    } finally {
-      setLoading(false);
-    }
-  };
+  setProcessError('');
+  setLoading(true);
+
+  try {
+    const res = await api.textDraft(inputText);
+    const draft = res.draft;
+
+    setDraftName(draft.sample_name || 'Rajesh Kumar');
+    setDraftHeadline(draft.headline || 'Experienced Skilled Technician');
+    setDraftCoreSkills(draft.core_skills || ['electrician']);
+    setDraftExperience(draft.experience_years || 5);
+    setDraftAreaId(draft.area_id || 'area-1');
+    setStep('review');
+  } catch (error) {
+    console.error('Text profile processing failed:', error);
+    setProcessError(
+      'We could not process your details. Please try again. Your entered text has been kept.'
+    );
+  } finally {
+    setLoading(false);
+  }
+};
 
   const handleConfirmProfile = async () => {
     if (!consentGranted) {
@@ -299,7 +308,13 @@ export const WorkerOnboarding: React.FC<WorkerOnboardingProps> = ({ onProfileCre
               placeholder="Aap yahan likh bhi sakte hain..."
               className="w-full bg-white border-[2.5px] border-black rounded-lg p-3.5 text-sm text-black font-medium placeholder-neutral-500 shadow-hard-sm focus:outline-none focus:shadow-hard"
             />
-          </div>
+            </div>
+
+          {processError && (
+            <p role="alert" className="text-sm font-bold text-red-700">
+              {processError}
+            </p>
+          )}
 
           {/* Proceed Button */}
           <button

@@ -1,0 +1,105 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  body {
+    background-color: #faf7f2;
+    color: #121212;
+    font-family: 'Plus Jakarta Sans', system-ui, -apple-system, sans-serif;
+  }
+  h1, h2, h3, h4, .font-display {
+    font-family: 'Space Grotesk', 'Plus Jakarta Sans', sans-serif;
+    letter-spacing: -0.02em;
+  }
+}
+
+/* Neo-Brutalist utility classes */
+.card-brutal {
+  background-color: #ffffff;
+  border: 2.5px solid #121212;
+  box-shadow: 4px 4px 0px 0px #121212;
+  border-radius: 8px;
+}
+
+.card-brutal-yellow {
+  background-color: #fef08a;
+  border: 2.5px solid #121212;
+  box-shadow: 4px 4px 0px 0px #121212;
+  border-radius: 8px;
+}
+
+.card-brutal-cream {
+  background-color: #f5eee3;
+  border: 2.5px solid #121212;
+  box-shadow: 4px 4px 0px 0px #121212;
+  border-radius: 8px;
+}
+
+.btn-brutal-primary {
+  background-color: #facc15;
+  color: #121212;
+  font-weight: 700;
+  border: 2.5px solid #121212;
+  box-shadow: 3px 3px 0px 0px #121212;
+  border-radius: 6px;
+  transition: all 0.1s ease-in-out;
+}
+
+.btn-brutal-primary:hover {
+  background-color: #fde047;
+  transform: translate(-1px, -1px);
+  box-shadow: 4px 4px 0px 0px #121212;
+}
+
+.btn-brutal-primary:active {
+  transform: translate(2px, 2px);
+  box-shadow: 1px 1px 0px 0px #121212;
+}
+
+.btn-brutal-secondary {
+  background-color: #ffffff;
+  color: #121212;
+  font-weight: 700;
+  border: 2.5px solid #121212;
+  box-shadow: 3px 3px 0px 0px #121212;
+  border-radius: 6px;
+  transition: all 0.1s ease-in-out;
+}
+
+.btn-brutal-secondary:hover {
+  background-color: #f5eee3;
+  transform: translate(-1px, -1px);
+  box-shadow: 4px 4px 0px 0px #121212;
+}
+
+.btn-brutal-secondary:active {
+  transform: translate(2px, 2px);
+  box-shadow: 1px 1px 0px 0px #121212;
+}
+
+.badge-brutal {
+  display: inline-flex;
+  align-items: center;
+  border: 2px solid #121212;
+  font-weight: 700;
+  font-size: 0.75rem;
+  padding: 0.2rem 0.5rem;
+  border-radius: 4px;
+  box-shadow: 1.5px 1.5px 0px 0px #121212;
+}
+
+.input-brutal {
+  background-color: #ffffff;
+  border: 2.5px solid #121212;
+  box-shadow: 2px 2px 0px 0px #121212;
+  border-radius: 6px;
+  color: #121212;
+  font-weight: 500;
+  outline: none;
+}
+
+.input-brutal:focus {
+  border-color: #121212;
+  box-shadow: 3px 3px 0px 0px #facc15;
+}

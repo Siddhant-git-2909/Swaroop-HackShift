@@ -1,0 +1,19 @@
+{
+  "name": "swaroop",
+  "version": "1.0.0",
+  "private": true,
+  "description": "SWAROOP — Resume nahi, hunar hai. Voice-first, assisted-access platform for informal skilled workers.",
+  "scripts": {
+    "setup": "node ./tools/setup.mjs",
+    "dev": "node ./tools/dev.mjs",
+    "dev:server": "node ./tools/run-server.mjs",
+    "dev:client": "npm --prefix client run dev",
+    "build": "npm --prefix client run build",
+    "build:client": "npm --prefix client run build",
+    "typecheck": "npm --prefix client run typecheck",
+    "lint": "npm --prefix client run lint",
+    "api:health": "node ./tools/health.mjs",
+    "demo:reset": "node ./tools/demo-reset.mjs"
+  },
+  "devDependencies": {}
+}

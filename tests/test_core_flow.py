@@ -23,6 +23,11 @@ def test_privacy_no_phone_in_public_passport():
     assert "public_url" in data
     assert "/w/ramesh-electrician" in data["public_url"]
 
+def test_unknown_public_passport_returns_not_found():
+    res = client.get("/api/v1/public/workers/does-not-exist")
+    assert res.status_code == 404
+    assert res.json()["detail"] == "Worker not found"
+
 def test_matching_search_breakdown():
     res = client.post("/api/v1/matching/search", json={"category": "electrician", "area_id": "area-1"})
     assert res.status_code == 200

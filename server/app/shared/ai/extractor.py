@@ -53,8 +53,19 @@ class VoiceAndTextExtractor:
             if matched_area:
                 headline += f" in {matched_area['name_en']}"
 
+        # Name extraction (Hindi / English)
+        extracted_name = None
+        name_match = re.search(r'(?:mera\s+naam|my\s+name\s+is|naam\s+hai)\s+([A-Za-z\u0900-\u097F]+(?:\s+[A-Za-z\u0900-\u097F]+)?)', raw_text, re.IGNORECASE)
+        if name_match:
+            candidate = name_match.group(1).strip()
+            # Clean up trailing words like 'hai'
+            candidate = re.sub(r'\s+hai$', '', candidate, flags=re.IGNORECASE)
+            if len(candidate) > 2:
+                extracted_name = candidate
+
         return {
             "transcript": raw_text,
+            "sample_name": extracted_name,
             "core_skills": core_skills,
             "secondary_skills": secondary_skills,
             "experience_years": experience_years or 3,

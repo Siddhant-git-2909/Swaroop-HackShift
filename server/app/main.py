@@ -1,13 +1,15 @@
 import os
+import re
 import uuid
 from typing import Optional, List, Dict, Any
 from fastapi import FastAPI, HTTPException, Header, UploadFile, File, Form, Query
+from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 from .config.settings import settings
-from .shared.mongodb import mongo_store
+from .shared.mongodb import mongo_store, clean_doc, clean_docs
 from .shared.ai.extractor import VoiceAndTextExtractor
 from .shared.ai.sarvam import transcribe_audio_sarvam
 
@@ -20,13 +22,37 @@ app = FastAPI(
 )
 
 # CORS configuration
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
+cors_origins_raw = settings.cors_origins.strip()
+if cors_origins_raw == "*" or not cors_origins_raw:
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=["*"],
+        allow_credentials=False,
+        allow_methods=["*"],
+        allow_headers=["*"],
+    )
+else:
+    allowed_origins = [origin.strip() for origin in cors_origins_raw.split(",") if origin.strip()]
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=allowed_origins,
+        allow_credentials=True,
+        allow_methods=["*"],
+        allow_headers=["*"],
+    )
+
+@app.exception_handler(RuntimeError)
+def runtime_error_handler(request, exc: RuntimeError):
+    if "MongoDB" in str(exc):
+        return JSONResponse(
+            status_code=503,
+            content={
+                "detail": str(exc),
+                "database": "MongoDB Atlas",
+                "database_connected": False
+            }
+        )
+    return JSONResponse(status_code=500, content={"detail": str(exc)})
 
 # Upload directory setup
 os.makedirs(settings.upload_dir, exist_ok=True)
@@ -41,10 +67,30 @@ def on_startup():
 def on_shutdown():
     mongo_store.close()
 
+# --- Phone Normalization & Validation ---
+def normalize_phone(phone: str) -> str:
+    if not phone:
+        return ""
+    digits = re.sub(r"\D", "", str(phone))
+    if digits.startswith("91") and len(digits) == 12:
+        digits = digits[2:]
+    elif digits.startswith("0") and len(digits) == 11:
+        digits = digits[1:]
+    return digits
+
+def is_valid_indian_phone(phone: str) -> bool:
+    norm = normalize_phone(phone)
+    return bool(re.match(r"^[6-9]\d{9}$", norm))
+
 # --- Request / Response Schemas ---
+class SignupRequest(BaseModel):
+    name: str
+    phone: str
+    role: str # worker | contractor | customer
+
 class OTPRequest(BaseModel):
     phone: str
-    role: str = "worker" # worker | customer | contractor | facilitator | admin
+    role: Optional[str] = "worker" # worker | customer | contractor | facilitator | admin
     name: Optional[str] = None
 
 class OTPVerify(BaseModel):
@@ -122,8 +168,14 @@ class ContractorProjectCreate(BaseModel):
 class AssignWorkerRequest(BaseModel):
     worker_id: str
 
-# --- Endpoints ---
+class ContractorWorkerReviewRequest(BaseModel):
+    contractor_id: str
+    claim_id: Optional[str] = None
+    verdict: str = "verified" # verified | reviewed | rejected
+    note: str
 
+# --- Endpoints ---
+@app.get("/health")
 @app.get("/api/v1/health")
 def health_check():
     return {
@@ -146,33 +198,98 @@ def get_areas():
 def get_skills():
     return mongo_store.get_skills()
 
-# Auth (Simulated Demo OTP + MongoDB persistent users)
-@app.post("/api/v1/auth/otp/request")
-def request_otp(req: OTPRequest):
+# Auth (Common Signup, Simulated Demo OTP Login & MongoDB persistent users)
+@app.post("/api/v1/auth/signup")
+def signup(req: SignupRequest):
+    if not req.name or len(req.name.strip()) < 2:
+        raise HTTPException(status_code=400, detail="Full name is required (minimum 2 characters).")
+
+    norm_phone = normalize_phone(req.phone)
+    if not is_valid_indian_phone(norm_phone):
+        raise HTTPException(status_code=400, detail="Invalid Indian mobile number. Please enter a valid 10-digit number starting with 6, 7, 8, or 9.")
+
+    role = req.role.lower().strip()
+    if role not in ["worker", "contractor", "customer"]:
+        raise HTTPException(status_code=400, detail="Role must be one of: worker, contractor, customer.")
+
+    existing = mongo_store.get_user_by_phone(norm_phone)
+    if existing:
+        raise HTTPException(status_code=400, detail="Phone number is already registered. Please login instead.")
+
+    user = mongo_store.create_user(phone=norm_phone, role=role, name=req.name.strip())
+
+    worker_profile = None
+    if role == "worker":
+        worker_profile = mongo_store.get_worker(user["id"])
+        if not worker_profile:
+            slug = f"{req.name.strip().lower().replace(' ', '-')}-{norm_phone[-4:]}"
+            worker_profile = mongo_store.save_worker_profile(user["id"], {
+                "user_id": user["id"],
+                "name": req.name.strip(),
+                "headline": f"Skilled Worker — {req.name.strip()}",
+                "core_skills": [],
+                "secondary_skills": [],
+                "slug": slug,
+                "trust_level": 1
+            })
+
+    token = f"swaroop-jwt-{user['id']}"
     return {
         "success": True,
-        "message": f"SIMULATED: Verification code sent to {req.phone}.",
-        "demo_otp": settings.demo_otp,
-        "simulated": True
+        "message": f"Account successfully created as {role.capitalize()}.",
+        "token": token,
+        "user": {
+            "id": user["id"],
+            "phone": user["phone"],
+            "role": user["role"],
+            "name": user["name"],
+            "status": user.get("status", "active")
+        },
+        "worker_profile": worker_profile
     }
+
+@app.post("/api/v1/auth/otp/request")
+def request_otp(req: OTPRequest):
+    norm_phone = normalize_phone(req.phone)
+    if not is_valid_indian_phone(norm_phone):
+        raise HTTPException(status_code=400, detail="Invalid Indian mobile number. Must be a 10-digit number starting with 6, 7, 8, or 9.")
+
+    user = mongo_store.get_user_by_phone(norm_phone)
+    if not user:
+        raise HTTPException(status_code=404, detail="Account not found for this phone number. Please sign up first.")
+
+    res = {
+        "success": True,
+        "message": f"DEMO OTP: Use {settings.demo_otp}. SMS delivery simulated for HackShift MVP.",
+        "simulated": True,
+        "phone": norm_phone
+    }
+    # Restrict demo OTP exposure in production API responses
+    if settings.demo_mode and settings.app_env != "production":
+        res["demo_otp"] = settings.demo_otp
+
+    return res
 
 @app.post("/api/v1/auth/otp/verify")
 def verify_otp(req: OTPVerify):
-    if req.otp != settings.demo_otp and req.otp != "123456":
-        raise HTTPException(status_code=400, detail="Invalid OTP. Use demo OTP 123456")
+    norm_phone = normalize_phone(req.phone)
+    if not is_valid_indian_phone(norm_phone):
+        raise HTTPException(status_code=400, detail="Invalid Indian mobile number.")
 
-    user = mongo_store.get_user_by_phone(req.phone)
+    user = mongo_store.get_user_by_phone(norm_phone)
     if not user:
-        user = mongo_store.create_user(
-            phone=req.phone,
-            role=req.role,
-            name=req.name or f"User {req.phone[-4:]}"
-        )
+        raise HTTPException(status_code=404, detail="Account not found for this phone number. Please sign up first.")
 
+    # Reject incorrect or missing OTP
+    if req.otp != settings.demo_otp and req.otp != "123456":
+        raise HTTPException(status_code=400, detail="Invalid OTP. Use DEMO OTP 123456.")
+
+    # Login retrieves existing account and its stored role (no duplicate accounts or role changes)
     token = f"swaroop-jwt-{user['id']}"
     worker_profile = mongo_store.get_worker(user["id"]) if user["role"] == "worker" else None
 
     return {
+        "success": True,
         "token": token,
         "user": {
             "id": user["id"],
@@ -183,6 +300,27 @@ def verify_otp(req: OTPVerify):
         },
         "worker_profile": worker_profile,
         "simulated": True
+    }
+
+@app.get("/api/v1/workers/{worker_id}/contact")
+def get_worker_contact(worker_id: str):
+    worker = mongo_store.get_worker(worker_id)
+    if not worker:
+        worker = mongo_store.get_worker_by_slug(worker_id)
+    if not worker:
+        raise HTTPException(status_code=404, detail="Worker profile not found")
+
+    user = mongo_store.get_user_by_id(worker["user_id"])
+    if not user:
+        raise HTTPException(status_code=404, detail="Worker account not found")
+
+    return {
+        "worker_id": worker["user_id"],
+        "name": worker.get("name") or user.get("name"),
+        "phone": user.get("phone"),
+        "headline": worker.get("headline"),
+        "area_text": worker.get("area_text", "Delhi NCR"),
+        "trust_level": worker.get("trust_level", 1)
     }
 
 @app.post("/api/v1/auth/staff/login")
@@ -229,16 +367,57 @@ def voice_draft_sample():
         "source": "voice"
     }
 
-@app.post("/api/v1/workers/voice-transcribe")
-async def voice_transcribe(file: UploadFile = File(...)):
+@app.post("/api/v1/voice/transcribe")
+async def general_voice_transcribe(
+    file: UploadFile = File(...),
+    language_code: Optional[str] = Form("unknown")
+):
     """
-    Accepts real recorded audio file from browser MediaRecorder,
-    transcribes it using official Sarvam AI API, and extracts grounded profile.
+    Universal Voice-to-Text endpoint powered by Sarvam AI (Saaras model).
+    Accepts any spoken audio in Hindi, Hinglish, English, or Indian regional languages
+    and converts it into high-accuracy text.
     """
     try:
         audio_bytes = await file.read()
-        if len(audio_bytes) < 500:
-            # Empty or too short audio; fall back gracefully
+        if len(audio_bytes) < 300:
+            return {
+                "success": False,
+                "transcript": "",
+                "note": "Recording was too short or silent. Please speak clearly into your microphone.",
+                "language_code": language_code or "unknown"
+            }
+
+        transcript, success, note, meta = transcribe_audio_sarvam(
+            audio_bytes,
+            filename=file.filename or "recording.webm",
+            mime_type=file.content_type or "audio/webm",
+            language_code=language_code or "unknown"
+        )
+
+        return {
+            "success": success,
+            "transcript": transcript,
+            "note": note,
+            "language_code": meta.get("language_code", "unknown"),
+            "meta": meta
+        }
+    except Exception as e:
+        return {
+            "success": False,
+            "transcript": "",
+            "note": f"Transcription error: {str(e)}",
+            "language_code": "unknown"
+        }
+
+@app.post("/api/v1/workers/voice-transcribe")
+async def worker_voice_transcribe(file: UploadFile = File(...)):
+    """
+    Worker voice profile creation: accepts audio, transcribes with Sarvam AI,
+    and automatically extracts structured skill profile fields.
+    """
+    try:
+        audio_bytes = await file.read()
+        if len(audio_bytes) < 300:
             return {
                 "success": False,
                 "transcript": "",
@@ -246,10 +425,10 @@ async def voice_transcribe(file: UploadFile = File(...)):
                 "draft": None
             }
 
-        transcript, success, note = transcribe_audio_sarvam(
+        transcript, success, note, meta = transcribe_audio_sarvam(
             audio_bytes,
-            filename=file.filename or "recording.wav",
-            mime_type=file.content_type or "audio/wav"
+            filename=file.filename or "recording.webm",
+            mime_type=file.content_type or "audio/webm"
         )
 
         if success and transcript:
@@ -258,6 +437,7 @@ async def voice_transcribe(file: UploadFile = File(...)):
                 "success": True,
                 "transcript": transcript,
                 "note": note,
+                "language_code": meta.get("language_code", "hi-IN"),
                 "draft": draft
             }
         else:
@@ -499,6 +679,10 @@ def get_worker_reviews(slug: str):
 # Facilitator In-Person Assessment (Promote to L3)
 @app.post("/api/v1/facilitator/claims/{id}/assess")
 def assess_claim(id: str, req: FacilitatorAssess):
+    facilitator = mongo_store.get_user_by_id(req.facilitator_id)
+    if not facilitator or facilitator.get("role") not in ["facilitator", "admin"]:
+        raise HTTPException(status_code=403, detail="Forbidden: Only certified Sewa Kendra facilitators can assess Level 3 claims.")
+
     try:
         claim = mongo_store.human_assess_claim(
             claim_id=id,
@@ -518,7 +702,7 @@ def assess_claim(id: str, req: FacilitatorAssess):
 def list_facilitator_queue():
     workers = []
     if mongo_store.connected and mongo_store.db is not None:
-        profiles = list(mongo_store.db.worker_profiles.find({}))
+        profiles = clean_docs(list(mongo_store.db.worker_profiles.find({})))
     else:
         profiles = []
     for w in profiles:
@@ -535,6 +719,10 @@ def list_facilitator_queue():
 # Contractor Projects & Squad Management
 @app.post("/api/v1/contractor/projects")
 def create_contractor_project(req: ContractorProjectCreate):
+    contractor = mongo_store.get_user_by_id(req.contractor_id)
+    if not contractor or contractor.get("role") not in ["contractor", "admin"]:
+        raise HTTPException(status_code=403, detail="Forbidden: Only registered commercial contractors can create project squads.")
+
     return mongo_store.contractor_create_project(
         contractor_id=req.contractor_id,
         title=req.title,
@@ -552,6 +740,30 @@ def list_contractor_projects(contractor_id: Optional[str] = None):
 @app.post("/api/v1/contractor/projects/{id}/assign")
 def assign_worker_to_project(id: str, req: AssignWorkerRequest):
     return mongo_store.contractor_assign_worker(id, req.worker_id)
+
+@app.post("/api/v1/contractor/workers/{worker_id}/review")
+def contractor_review_worker(worker_id: str, req: ContractorWorkerReviewRequest):
+    contractor = mongo_store.get_user_by_id(req.contractor_id)
+    if not contractor or contractor.get("role") not in ["contractor", "admin"]:
+        raise HTTPException(status_code=403, detail="Forbidden: Only registered commercial contractors can submit trade verification reviews.")
+
+    try:
+        rev = mongo_store.contractor_review_worker(
+            contractor_id=req.contractor_id,
+            worker_id=worker_id,
+            claim_id=req.claim_id,
+            verdict=req.verdict,
+            note=req.note
+        )
+        return {
+            "success": True,
+            "review": rev,
+            "message": f"Worker trade performance successfully marked as {req.verdict}."
+        }
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except RuntimeError as e:
+        raise HTTPException(status_code=503, detail=str(e))
 
 # Demo Reset (Safely resets demo records only; preserves user-created records)
 @app.post("/api/v1/demo/reset")

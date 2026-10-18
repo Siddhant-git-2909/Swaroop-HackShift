@@ -6,35 +6,21 @@ import { SkillPassport } from './features/skill-passport/SkillPassport';
 import { CustomerDiscovery } from './features/customer-discovery/CustomerDiscovery';
 import { BookingsList } from './features/bookings/BookingsList';
 import { FacilitatorPortal } from './features/facilitator/FacilitatorPortal';
+import { VoiceStudioModal } from './components/VoiceStudioModal';
+import { AuthModal } from './components/AuthModal';
 import { api } from './services/api';
 import { User, WorkerProfile } from './types';
 
 export const App: React.FC = () => {
   const [currentTab, setCurrentTab] = useState<string>('landing');
+  const [isVoiceStudioOpen, setIsVoiceStudioOpen] = useState(false);
+  const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
+  const [passedTranscript, setPassedTranscript] = useState('');
+  const [passedSearchQuery, setPassedSearchQuery] = useState('');
 
-  // Default demo user: Worker Ramesh Kumar
-  const [currentUser, setCurrentUser] = useState<User>({
-    id: 'user-w1',
-    phone: '9000000001',
-    role: 'worker',
-    name: 'Ramesh Kumar (रमेश कुमार)',
-    language: 'hi',
-    status: 'active'
-  });
-
-  const [activeWorkerProfile, setActiveWorkerProfile] = useState<WorkerProfile | null>({
-    user_id: 'user-w1',
-    slug: 'ramesh-electrician',
-    name: 'Ramesh Kumar',
-    headline: 'House Wiring, MCB Tripping & Inverter Specialist with 8 Years Experience',
-    core_skills: ['electrician'],
-    secondary_skills: ['appliance-repair'],
-    experience_years: 8,
-    area_id: 'area-1',
-    area_text: 'Karol Bagh & Central Delhi',
-    trust_level: 2,
-    identity_check_status: 'simulated_check'
-  });
+  // Normal app startup starts logged-out (currentUser: null)
+  const [currentUser, setCurrentUser] = useState<User | null>(null);
+  const [activeWorkerProfile, setActiveWorkerProfile] = useState<WorkerProfile | null>(null);
 
   // Check URL pathname for direct public passport link /w/:slug
   useEffect(() => {
@@ -54,8 +40,28 @@ export const App: React.FC = () => {
     }
   }, []);
 
+  const handleLogout = () => {
+    setCurrentUser(null);
+    setActiveWorkerProfile(null);
+    setCurrentTab('landing');
+  };
+
   const handleQuickSwitch = (role: 'worker' | 'customer' | 'contractor' | 'facilitator') => {
     if (role === 'worker') {
+      const rameshProfile: WorkerProfile = {
+        user_id: 'user-w1',
+        slug: 'ramesh-electrician',
+        name: 'Ramesh Kumar',
+        headline: 'House Wiring, MCB Tripping & Inverter Specialist with 8 Years Experience',
+        core_skills: ['electrician'],
+        secondary_skills: ['appliance-repair'],
+        experience_years: 8,
+        area_id: 'area-1',
+        area_text: 'Karol Bagh & Central Delhi',
+        trust_level: 2,
+        identity_check_status: 'simulated_check'
+      };
+      setActiveWorkerProfile(rameshProfile);
       setCurrentUser({
         id: 'user-w1',
         phone: '9000000001',
@@ -66,6 +72,7 @@ export const App: React.FC = () => {
       });
       setCurrentTab('passport');
     } else if (role === 'customer') {
+      setActiveWorkerProfile(null);
       setCurrentUser({
         id: 'user-c1',
         phone: '9100000001',
@@ -76,6 +83,7 @@ export const App: React.FC = () => {
       });
       setCurrentTab('discovery');
     } else if (role === 'contractor') {
+      setActiveWorkerProfile(null);
       setCurrentUser({
         id: 'user-ct1',
         phone: '9400000001',
@@ -86,6 +94,7 @@ export const App: React.FC = () => {
       });
       setCurrentTab('discovery');
     } else if (role === 'facilitator') {
+      setActiveWorkerProfile(null);
       setCurrentUser({
         id: 'user-f1',
         phone: '9200000001',
@@ -132,6 +141,29 @@ export const App: React.FC = () => {
       .catch(console.error);
   };
 
+  const handleAuthSuccess = (user: User, profile?: WorkerProfile | null) => {
+    setCurrentUser(user);
+    if (profile) {
+      setActiveWorkerProfile(profile);
+    } else if (user.role !== 'worker') {
+      setActiveWorkerProfile(null);
+    }
+    // Role-specific dashboard routing
+    if (user.role === 'worker') {
+      if (profile && profile.core_skills && profile.core_skills.length > 0) {
+        setCurrentTab('passport');
+      } else {
+        setCurrentTab('onboarding');
+      }
+    } else if (user.role === 'contractor') {
+      setCurrentTab('discovery');
+    } else if (user.role === 'customer') {
+      setCurrentTab('discovery');
+    } else if (user.role === 'facilitator') {
+      setCurrentTab('facilitator');
+    }
+  };
+
   return (
     <div className="min-h-screen flex flex-col bg-[#faf7f2] text-neutral-900 font-sans">
       <Navbar
@@ -140,6 +172,30 @@ export const App: React.FC = () => {
         onSelectTab={setCurrentTab}
         onQuickSwitch={handleQuickSwitch}
         onResetDemo={handleResetDemo}
+        onLogout={handleLogout}
+        onOpenVoiceStudio={() => setIsVoiceStudioOpen(true)}
+        onOpenAuthModal={() => setIsAuthModalOpen(true)}
+      />
+
+      {/* Common Signup & Phone OTP Login Modal */}
+      <AuthModal
+        isOpen={isAuthModalOpen}
+        onClose={() => setIsAuthModalOpen(false)}
+        onLoginSuccess={handleAuthSuccess}
+      />
+
+      {/* Sarvam AI Voice Studio Modal */}
+      <VoiceStudioModal
+        isOpen={isVoiceStudioOpen}
+        onClose={() => setIsVoiceStudioOpen(false)}
+        onUseForWorker={(text) => {
+          setPassedTranscript(text);
+          setCurrentTab('onboarding');
+        }}
+        onUseForSearch={(text) => {
+          setPassedSearchQuery(text);
+          setCurrentTab('discovery');
+        }}
       />
 
       {/* Main Content Area */}
@@ -151,18 +207,49 @@ export const App: React.FC = () => {
             onFindWorkers={() => setCurrentTab('discovery')}
             onGoToBookings={() => setCurrentTab('bookings')}
             onGoToFacilitator={() => setCurrentTab('facilitator')}
+            onOpenVoiceStudio={() => setIsVoiceStudioOpen(true)}
           />
         )}
 
         {currentTab === 'onboarding' && (
-          <WorkerOnboarding onProfileCreated={handleProfileCreated} />
+          <WorkerOnboarding 
+            onProfileCreated={handleProfileCreated}
+            initialTranscript={passedTranscript}
+          />
         )}
 
         {currentTab === 'passport' && (
-          <SkillPassport
-            workerProfile={activeWorkerProfile}
-            onOpenDiscovery={() => setCurrentTab('discovery')}
-          />
+          activeWorkerProfile ? (
+            <SkillPassport
+              workerProfile={activeWorkerProfile}
+              currentUser={currentUser}
+              onOpenDiscovery={() => setCurrentTab('discovery')}
+            />
+          ) : (
+            <div className="max-w-xl mx-auto my-12 p-8 bg-white border-[2.5px] border-black rounded-lg shadow-hard-lg text-center space-y-4">
+              <div className="w-12 h-12 mx-auto bg-[#facc15] border-2 border-black rounded-md flex items-center justify-center font-black text-xl shadow-hard-sm">
+                🪪
+              </div>
+              <h2 className="text-2xl font-black text-black">No Skill Passport Selected</h2>
+              <p className="text-sm text-neutral-700 font-medium">
+                Log in as a worker to view and manage your own digital Skill Passport, or browse verified workers in Find Workers.
+              </p>
+              <div className="flex justify-center gap-3 pt-2">
+                <button
+                  onClick={() => setIsAuthModalOpen(true)}
+                  className="px-4 py-2 bg-[#facc15] text-black font-black text-sm border-2 border-black rounded-md shadow-hard-sm hover:bg-yellow-400 transition-all"
+                >
+                  Sign In / Up
+                </button>
+                <button
+                  onClick={() => setCurrentTab('discovery')}
+                  className="px-4 py-2 bg-white text-black font-black text-sm border-2 border-black rounded-md shadow-hard-sm hover:bg-neutral-50 transition-all"
+                >
+                  Find Workers
+                </button>
+              </div>
+            </div>
+          )
         )}
 
         {currentTab === 'discovery' && (
@@ -170,20 +257,67 @@ export const App: React.FC = () => {
             currentUser={currentUser}
             onBookingCreated={() => setCurrentTab('bookings')}
             onViewPassport={handleViewWorkerPassport}
+            initialSearchQuery={passedSearchQuery}
           />
         )}
 
         {currentTab === 'bookings' && (
-          <BookingsList
-            currentUser={currentUser}
-            onRefreshPassport={() => {}}
-          />
+          currentUser ? (
+            <BookingsList
+              currentUser={currentUser}
+              onRefreshPassport={() => {}}
+            />
+          ) : (
+            <div className="max-w-xl mx-auto my-12 p-8 bg-white border-[2.5px] border-black rounded-lg shadow-hard-lg text-center space-y-4">
+              <div className="w-12 h-12 mx-auto bg-[#facc15] border-2 border-black rounded-md flex items-center justify-center font-black text-xl shadow-hard-sm">
+                📋
+              </div>
+              <h2 className="text-2xl font-black text-black">Sign In to View Bookings</h2>
+              <p className="text-sm text-neutral-700 font-medium">
+                Log in with your mobile number to view and track your customer service requests, job quotations, or contractor projects.
+              </p>
+              <div className="flex justify-center gap-3 pt-2">
+                <button
+                  onClick={() => setIsAuthModalOpen(true)}
+                  className="px-4 py-2 bg-[#facc15] text-black font-black text-sm border-2 border-black rounded-md shadow-hard-sm hover:bg-yellow-400 transition-all"
+                >
+                  Sign In / Up
+                </button>
+              </div>
+            </div>
+          )
         )}
 
         {currentTab === 'facilitator' && (
-          <FacilitatorPortal
-            onWorkerAssessed={() => {}}
-          />
+          currentUser?.role === 'facilitator' || currentUser?.role === 'admin' ? (
+            <FacilitatorPortal
+              onWorkerAssessed={() => {}}
+            />
+          ) : (
+            <div className="max-w-xl mx-auto my-12 p-8 bg-white border-[2.5px] border-black rounded-lg shadow-hard-lg text-center space-y-4">
+              <div className="w-12 h-12 mx-auto bg-red-100 border-2 border-black rounded-md flex items-center justify-center font-black text-xl shadow-hard-sm text-red-600">
+                🔒
+              </div>
+              <h2 className="text-2xl font-black text-black">Facilitator Access Restricted</h2>
+              <p className="text-sm text-neutral-700 font-medium">
+                The Sewa Kendra queue is strictly restricted to certified in-person facilitators and platform administrators for Level 3 trust assessments.
+              </p>
+              <div className="flex justify-center gap-3 pt-2">
+                <button
+                  onClick={() => handleQuickSwitch('facilitator')}
+                  className="px-4 py-2 bg-[#facc15] text-black font-black text-sm border-2 border-black rounded-md shadow-hard-sm hover:bg-yellow-400 transition-all"
+                >
+                  Switch to Demo Facilitator (Sunita)
+                </button>
+                <button
+                  onClick={() => setCurrentTab('landing')}
+                  className="px-4 py-2 bg-white text-black font-black text-sm border-2 border-black rounded-md shadow-hard-sm hover:bg-neutral-50 transition-all"
+                >
+                  Return to Home
+                </button>
+              </div>
+            </div>
+          )
         )}
       </main>
 

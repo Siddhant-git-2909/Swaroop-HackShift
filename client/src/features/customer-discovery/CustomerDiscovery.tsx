@@ -16,25 +16,34 @@ import {
   Users,
   Plus
 } from 'lucide-react';
+import { VoiceInputButton } from '../../components/VoiceInputButton';
 
 interface CustomerDiscoveryProps {
   currentUser: User | null;
   onBookingCreated: () => void;
   onViewPassport: (slug: string) => void;
+  initialSearchQuery?: string;
 }
 
 export const CustomerDiscovery: React.FC<CustomerDiscoveryProps> = ({
   currentUser,
   onBookingCreated,
   onViewPassport,
+  initialSearchQuery = '',
 }) => {
   const [areas, setAreas] = useState<Area[]>([]);
   const [skills, setSkills] = useState<Skill[]>([]);
   const [selectedCategory, setSelectedCategory] = useState<string>('');
   const [selectedAreaId, setSelectedAreaId] = useState<string>('area-1');
-  const [searchQuery, setSearchQuery] = useState('');
+  const [searchQuery, setSearchQuery] = useState(initialSearchQuery || '');
   const [workers, setWorkers] = useState<MatchedWorkerResult[]>([]);
   const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    if (initialSearchQuery) {
+      setSearchQuery(initialSearchQuery);
+    }
+  }, [initialSearchQuery]);
 
   // Contractor state
   const isContractor = currentUser?.role === 'contractor';
@@ -54,9 +63,20 @@ export const CustomerDiscovery: React.FC<CustomerDiscoveryProps> = ({
 
   // Direct booking modal
   const [selectedWorker, setSelectedWorker] = useState<MatchedWorkerResult | null>(null);
+  const [workerContact, setWorkerContact] = useState<{ phone: string; name: string } | null>(null);
   const [bookingDesc, setBookingDesc] = useState('');
   const [bookingDate, setBookingDate] = useState(new Date().toISOString().split('T')[0]);
   const [submittingBooking, setSubmittingBooking] = useState(false);
+
+  useEffect(() => {
+    if (selectedWorker) {
+      api.getWorkerContact(selectedWorker.worker.user_id)
+        .then(contact => setWorkerContact(contact))
+        .catch(() => setWorkerContact(null));
+    } else {
+      setWorkerContact(null);
+    }
+  }, [selectedWorker]);
 
   useEffect(() => {
     api.getAreas().then(setAreas).catch(console.error);
@@ -250,16 +270,29 @@ export const CustomerDiscovery: React.FC<CustomerDiscoveryProps> = ({
           {/* Filters Bar */}
           <div className="p-4 sm:p-5 rounded-lg bg-white border-[2.5px] border-black shadow-hard space-y-4">
             <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-              {/* Search box */}
-              <div className="relative">
-                <Search className="w-4 h-4 text-black absolute left-3.5 top-3.5 stroke-[2.5]" />
-                <input
-                  type="text"
-                  value={searchQuery}
-                  onChange={(e) => setSearchQuery(e.target.value)}
-                  onKeyDown={(e) => e.key === 'Enter' && fetchResults()}
-                  placeholder="Search trade, skill, or keyword..."
-                  className="w-full bg-[#faf7f2] border-2 border-black rounded-md pl-10 pr-3.5 py-2.5 text-xs text-black font-bold focus:bg-white focus:outline-none shadow-hard-sm"
+              {/* Search box with Sarvam AI Voice Input */}
+              <div className="flex items-center gap-1.5">
+                <div className="relative flex-1">
+                  <Search className="w-4 h-4 text-black absolute left-3.5 top-3.5 stroke-[2.5]" />
+                  <input
+                    type="text"
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                    onKeyDown={(e) => e.key === 'Enter' && fetchResults()}
+                    placeholder="Search trade, skill, or keyword..."
+                    className="w-full bg-[#faf7f2] border-2 border-black rounded-md pl-10 pr-3.5 py-2.5 text-xs text-black font-bold focus:bg-white focus:outline-none shadow-hard-sm"
+                  />
+                </div>
+                <VoiceInputButton
+                  size="md"
+                  label="Speak"
+                  title="Speak in Hindi/English to search with Sarvam AI"
+                  onTranscript={(text) => {
+                    setSearchQuery(text);
+                    api.searchMatching(selectedCategory || undefined, selectedAreaId || undefined, text)
+                      .then(data => setWorkers(data.results))
+                      .catch(console.error);
+                  }}
                 />
               </div>
 
@@ -463,6 +496,25 @@ export const CustomerDiscovery: React.FC<CustomerDiscoveryProps> = ({
               }
             </p>
 
+            {/* Verified Worker Contact Phone Number */}
+            <div className="mb-4 p-3 bg-[#e0f2fe] border-2 border-black rounded-md flex items-center justify-between shadow-hard-sm">
+              <div>
+                <span className="text-[10px] font-black uppercase text-blue-900 tracking-wider">Verified Worker Direct Contact</span>
+                <div className="text-xs font-mono font-black text-black flex items-center gap-1.5 mt-0.5">
+                  <span>📱</span>
+                  <span>{workerContact?.phone ? `+91 ${workerContact.phone}` : 'Loading contact...'}</span>
+                </div>
+              </div>
+              {workerContact?.phone && (
+                <a
+                  href={`tel:+91${workerContact.phone}`}
+                  className="btn-brutal-secondary text-[11px] px-2.5 py-1 flex items-center gap-1 font-bold"
+                >
+                  <span>Direct Call</span>
+                </a>
+              )}
+            </div>
+
             {isContractor && contractorProjects.length > 0 && (
               <div className="mb-4 p-3 bg-[#fef08a] border-2 border-black rounded-md space-y-2">
                 <label className="block text-xs font-black text-black">Assign to Existing Project Squad:</label>
@@ -512,7 +564,15 @@ export const CustomerDiscovery: React.FC<CustomerDiscoveryProps> = ({
               </div>
 
               <div>
-                <label className="block text-xs font-black text-black mb-1">Job / Site Description</label>
+                <div className="flex items-center justify-between mb-1">
+                  <label className="block text-xs font-black text-black">Job / Site Description</label>
+                  <VoiceInputButton
+                    size="sm"
+                    label="बोलकर बताएं"
+                    title="Speak job details using Sarvam AI"
+                    onTranscript={(text) => setBookingDesc((prev) => prev ? `${prev} ${text}` : text)}
+                  />
+                </div>
                 <textarea
                   rows={3}
                   required
@@ -630,7 +690,15 @@ export const CustomerDiscovery: React.FC<CustomerDiscoveryProps> = ({
               </div>
 
               <div>
-                <label className="block text-xs font-black text-black mb-1">Project Description</label>
+                <div className="flex items-center justify-between mb-1">
+                  <label className="block text-xs font-black text-black">Project Description</label>
+                  <VoiceInputButton
+                    size="sm"
+                    label="बोलकर बताएं"
+                    title="Speak project requirements using Sarvam AI"
+                    onTranscript={(text) => setNewProjectDesc((prev) => prev ? `${prev} ${text}` : text)}
+                  />
+                </div>
                 <textarea
                   rows={3}
                   required

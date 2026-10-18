@@ -46,7 +46,7 @@ class MongoStore:
         uri = settings.mongodb_uri
         db_name = settings.mongodb_database or "swaroop"
         if not uri:
-            print("[SWAROOP DB] MONGODB_URI not configured. Using fallback demo store.")
+            print("[SWAROOP DB] MONGODB_URI not configured. Database operations will require Atlas connection.")
             return False
 
         try:
@@ -60,9 +60,18 @@ class MongoStore:
             self.seed_deterministic_demo_data()
             return True
         except PyMongoError as e:
-            print(f"[SWAROOP DB] MongoDB Atlas connection failed ({type(e).__name__}). Using fallback store.")
+            print(f"[SWAROOP DB] MongoDB Atlas connection failed ({type(e).__name__}): {e}")
             self.connected = False
             return False
+
+    def _ensure_connected(self):
+        """
+        Enforces that MongoDB Atlas is active.
+        Raises RuntimeError instead of silently falling back to mock memory.
+        """
+        if not self.connected or self.db is None:
+            if not self.connect():
+                raise RuntimeError("MongoDB Atlas connection unavailable. Please check MONGODB_URI and IP whitelist in Atlas.")
 
     def close(self):
         if self.client:
@@ -558,9 +567,27 @@ class MongoStore:
         return next((b for b in BOOKINGS if b["id"] == booking_id), None)
 
     def update_booking_status(self, booking_id: str, new_status: str) -> Dict[str, Any]:
+        self._ensure_connected()
         booking = self.get_booking(booking_id)
         if not booking:
             raise ValueError("Booking not found")
+
+        current_status = booking.get("status", "requested")
+        valid_transitions = {
+            "requested": ["quoted", "worker_accepted", "accepted", "rejected", "cancelled"],
+            "quoted": ["accepted", "rejected", "cancelled"],
+            "worker_accepted": ["quoted", "in_progress", "cancelled"],
+            "accepted": ["in_progress", "cancelled"],
+            "in_progress": ["work_done", "cancelled"],
+            "work_done": ["completed"],
+            "completed": [],
+            "rejected": [],
+            "cancelled": []
+        }
+
+        allowed = valid_transitions.get(current_status, [])
+        if new_status != current_status and new_status not in allowed:
+            raise ValueError(f"Invalid status transition from '{current_status}' to '{new_status}'.")
 
         now = datetime.utcnow().isoformat() + "Z"
         update_fields: Dict[str, Any] = {"status": new_status}
@@ -571,12 +598,8 @@ class MongoStore:
         elif new_status == "completed" and not booking.get("completed_at"):
             update_fields["completed_at"] = now
 
-        if self.connected and self.db is not None:
-            self.db.bookings.update_one({"id": booking_id}, {"$set": update_fields})
-            return clean_doc(self.db.bookings.find_one({"id": booking_id}))
-
-        booking.update(update_fields)
-        return booking
+        self.db.bookings.update_one({"id": booking_id}, {"$set": update_fields})
+        return clean_doc(self.db.bookings.find_one({"id": booking_id}))
 
     # Quotations
     def get_quotation(self, quote_id: str) -> Optional[Dict[str, Any]]:
@@ -708,13 +731,51 @@ class MongoStore:
         return [p for p in CONTRACTOR_PROJECTS if not contractor_id or p.get("contractor_id") == contractor_id]
 
     def contractor_assign_worker(self, project_id: str, worker_id: str) -> Dict[str, Any]:
-        if self.connected and self.db is not None:
-            self.db.contractor_projects.update_one(
-                {"id": project_id},
-                {"$addToSet": {"assigned_worker_ids": worker_id}}
+        self._ensure_connected()
+        self.db.contractor_projects.update_one(
+            {"id": project_id},
+            {"$addToSet": {"assigned_worker_ids": worker_id}}
+        )
+        return clean_doc(self.db.contractor_projects.find_one({"id": project_id}))
+
+    def contractor_review_worker(self, contractor_id: str, worker_id: str, claim_id: Optional[str], verdict: str, note: str) -> Dict[str, Any]:
+        """
+        Allows verified contractors to review or confirm a worker's on-site performance.
+        Verdicts: 'verified' | 'reviewed' | 'rejected'
+        """
+        self._ensure_connected()
+        now = datetime.utcnow().isoformat() + "Z"
+        rev_id = f"ct-rev-{uuid.uuid4().hex[:8]}"
+        
+        contractor = self.get_user_by_id(contractor_id) or {}
+        contractor_name = contractor.get("name", "Contractor")
+        
+        record = {
+            "id": rev_id,
+            "contractor_id": contractor_id,
+            "contractor_name": contractor_name,
+            "worker_id": worker_id,
+            "claim_id": claim_id,
+            "verdict": verdict,
+            "note": note,
+            "is_demo": False,
+            "created_at": now
+        }
+        
+        self.db.contractor_reviews.insert_one(record)
+        
+        if claim_id:
+            self.db.claims.update_one(
+                {"id": claim_id},
+                {"$set": {
+                    "contractor_review_status": verdict,
+                    "contractor_reviewed_by": contractor_id,
+                    "contractor_reviewed_at": now,
+                    "contractor_note": note
+                }}
             )
-            return clean_doc(self.db.contractor_projects.find_one({"id": project_id}))
-        return {"id": project_id, "assigned_worker_ids": [worker_id]}
+        
+        return clean_doc(record)
 
     def demo_reset(self):
         """

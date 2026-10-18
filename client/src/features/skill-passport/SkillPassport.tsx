@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import QRCode from 'qrcode';
 import { api } from '../../services/api';
-import { WorkerProfile, Claim, EvidenceItem, Review } from '../../types';
+import { WorkerProfile, Claim, EvidenceItem, Review, User } from '../../types';
 import {
   ShieldCheck,
   Award,
@@ -22,10 +22,11 @@ import {
 
 interface SkillPassportProps {
   workerProfile: WorkerProfile | null;
+  currentUser?: User | null;
   onOpenDiscovery?: () => void;
 }
 
-export const SkillPassport: React.FC<SkillPassportProps> = ({ workerProfile }) => {
+export const SkillPassport: React.FC<SkillPassportProps> = ({ workerProfile, currentUser }) => {
   const [profile, setProfile] = useState<WorkerProfile | null>(workerProfile);
   const [claims, setClaims] = useState<Claim[]>([]);
   const [evidence, setEvidence] = useState<EvidenceItem[]>([]);
@@ -185,6 +186,14 @@ export const SkillPassport: React.FC<SkillPassportProps> = ({ workerProfile }) =
                   <Clock className="w-3.5 h-3.5 text-black stroke-[2.5]" />
                   <span>{profile?.experience_years || 5}+ Years Experience</span>
                 </span>
+                {currentUser?.phone && (currentUser.role === 'worker' || currentUser.id === profile?.user_id) && (
+                  <>
+                    <span>•</span>
+                    <span className="flex items-center gap-1 font-mono text-[11px] bg-[#facc15] text-black border border-black px-1.5 py-0.5 rounded shadow-[1px_1px_0px_0px_#000]">
+                      📱 +91 {currentUser.phone}
+                    </span>
+                  </>
+                )}
               </div>
             </div>
           </div>

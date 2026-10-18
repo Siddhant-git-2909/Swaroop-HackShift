@@ -16,13 +16,14 @@ import {
 
 interface WorkerOnboardingProps {
   onProfileCreated: (profile: WorkerProfile) => void;
+  initialTranscript?: string;
 }
 
-export const WorkerOnboarding: React.FC<WorkerOnboardingProps> = ({ onProfileCreated }) => {
+export const WorkerOnboarding: React.FC<WorkerOnboardingProps> = ({ onProfileCreated, initialTranscript }) => {
   const [step, setStep] = useState<'speak' | 'review'>('speak');
   const [isRecording, setIsRecording] = useState(false);
   const [recordingSeconds, setRecordingSeconds] = useState(0);
-  const [inputText, setInputText] = useState('');
+  const [inputText, setInputText] = useState(initialTranscript || '');
   const [loading, setLoading] = useState(false);
   const [transcribing, setTranscribing] = useState(false);
   const [transcribeNote, setTranscribeNote] = useState<string>('');
@@ -43,6 +44,12 @@ export const WorkerOnboarding: React.FC<WorkerOnboardingProps> = ({ onProfileCre
   const [draftExperience, setDraftExperience] = useState<number>(3);
   const [draftAreaId, setDraftAreaId] = useState<string>('area-1');
   const [consentGranted, setConsentGranted] = useState(true);
+
+  useEffect(() => {
+    if (initialTranscript) {
+      setInputText(initialTranscript);
+    }
+  }, [initialTranscript]);
 
   useEffect(() => {
     api.getAreas().then(setAreas).catch(console.error);
@@ -71,8 +78,28 @@ export const WorkerOnboarding: React.FC<WorkerOnboardingProps> = ({ onProfileCre
     try {
       setTranscribeNote('');
       audioChunksRef.current = [];
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      const mediaRecorder = new MediaRecorder(stream);
+      const stream = await navigator.mediaDevices.getUserMedia({ 
+        audio: {
+          echoCancellation: true,
+          noiseSuppression: true,
+          autoGainControl: true,
+        } 
+      });
+
+      let mimeType = 'audio/webm';
+      if (!MediaRecorder.isTypeSupported('audio/webm')) {
+        if (MediaRecorder.isTypeSupported('audio/mp4')) {
+          mimeType = 'audio/mp4';
+        } else if (MediaRecorder.isTypeSupported('audio/ogg')) {
+          mimeType = 'audio/ogg';
+        } else {
+          mimeType = '';
+        }
+      }
+
+      const mediaRecorder = mimeType
+        ? new MediaRecorder(stream, { mimeType })
+        : new MediaRecorder(stream);
       mediaRecorderRef.current = mediaRecorder;
 
       mediaRecorder.ondataavailable = (event) => {
@@ -84,7 +111,13 @@ export const WorkerOnboarding: React.FC<WorkerOnboardingProps> = ({ onProfileCre
       mediaRecorder.onstop = async () => {
         // Stop all tracks
         stream.getTracks().forEach(track => track.stop());
-        const audioBlob = new Blob(audioChunksRef.current, { type: 'audio/wav' });
+        const actualType = mediaRecorder.mimeType || 'audio/webm';
+        const audioBlob = new Blob(audioChunksRef.current, { type: actualType });
+
+        if (audioBlob.size < 300) {
+          setTranscribeNote('Recording was too short. Please speak for at least 1-2 seconds.');
+          return;
+        }
 
         // Send to backend Sarvam STT
         setTranscribing(true);
@@ -92,16 +125,16 @@ export const WorkerOnboarding: React.FC<WorkerOnboardingProps> = ({ onProfileCre
           const res = await api.voiceTranscribe(audioBlob);
           if (res.success && res.transcript) {
             setInputText(res.transcript);
-            setTranscribeNote(`Sarvam AI: "${res.note}"`);
+            setTranscribeNote(`Sarvam AI: "${res.transcript}"`);
             if (res.draft) {
-              setDraftName(res.draft.sample_name || 'Rajesh Kumar');
+              setDraftName(res.draft.sample_name || draftName || 'Skilled Worker');
               setDraftHeadline(res.draft.headline || 'Experienced Skilled Technician');
               setDraftCoreSkills(res.draft.core_skills || ['electrician']);
               setDraftExperience(res.draft.experience_years || 5);
               setDraftAreaId(res.draft.area_id || 'area-1');
             }
           } else {
-            setTranscribeNote(res.note || 'Sarvam STT returned no transcript. Please type below or try the sample.');
+            setTranscribeNote(res.note || 'Sarvam STT returned no transcript. Please speak closer to the mic or enter details below.');
           }
         } catch (error) {
           console.warn('Voice transcription failed:', error);
@@ -115,11 +148,16 @@ export const WorkerOnboarding: React.FC<WorkerOnboardingProps> = ({ onProfileCre
 
       mediaRecorder.start(250);
       setIsRecording(true);
-    } catch (err) {
+    } catch (err: any) {
       console.warn('Microphone access unavailable or blocked:', err);
-      // Fallback: Web Speech API or friendly text prompt
       setIsRecording(false);
-      setTranscribeNote('Microphone access not permitted in browser. Please type or use sample audio.');
+      if (err.name === 'NotAllowedError' || err.name === 'PermissionDeniedError') {
+        setTranscribeNote('Microphone permission denied. Please allow microphone access in your browser or type details below.');
+      } else if (err.name === 'NotFoundError' || err.name === 'DevicesNotFoundError') {
+        setTranscribeNote('No microphone detected. You can type your skills below or load sample speech.');
+      } else {
+        setTranscribeNote('Microphone access unavailable. Please type your skills below or load sample speech.');
+      }
     }
   };
 

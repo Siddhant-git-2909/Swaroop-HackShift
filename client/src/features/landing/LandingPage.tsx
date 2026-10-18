@@ -19,6 +19,7 @@ interface LandingPageProps {
   onFindWorkers: () => void;
   onGoToBookings: () => void;
   onGoToFacilitator: () => void;
+  onOpenVoiceStudio?: () => void;
 }
 
 export const LandingPage: React.FC<LandingPageProps> = ({
@@ -27,6 +28,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({
   onFindWorkers,
   onGoToBookings,
   onGoToFacilitator,
+  onOpenVoiceStudio,
 }) => {
   return (
     <div className="space-y-12 pb-16">
@@ -59,6 +61,16 @@ export const LandingPage: React.FC<LandingPageProps> = ({
             <Mic className="w-5 h-5 stroke-[2.5]" />
             <span>Voice Onboard (बोलकर प्रोफाइल बनाएं)</span>
           </button>
+
+          {onOpenVoiceStudio && (
+            <button
+              onClick={onOpenVoiceStudio}
+              className="btn-brutal-secondary flex items-center gap-2.5 px-6 py-3.5 text-base sm:text-lg bg-[#fef08a]"
+            >
+              <Sparkles className="w-5 h-5 text-black stroke-[2.5]" />
+              <span>Voice Studio (बोलकर टेक्स्ट लिखें)</span>
+            </button>
+          )}
 
           <button
             onClick={onFindWorkers}

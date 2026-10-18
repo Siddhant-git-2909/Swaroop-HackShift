@@ -142,3 +142,42 @@ def test_demo_reset_preserves_user_records():
     get_res = client.get(f"/api/v1/workers/me?worker_id={test_uid}")
     assert get_res.status_code == 200
     assert get_res.json()["profile"]["name"] == "Manish Sharma (User Created)"
+
+def test_root_health_endpoint():
+    res = client.get("/health")
+    assert res.status_code == 200
+    data = res.json()
+    assert data["status"] == "healthy"
+    assert data["database"] == "MongoDB Atlas"
+    assert data["database_connected"] is True
+
+def test_booking_status_transitions():
+    b_res = client.post("/api/v1/bookings", json={
+        "customer_id": "user-c1",
+        "worker_id": "user-w1",
+        "category": "electrician",
+        "description": "Wiring check"
+    })
+    assert b_res.status_code == 200
+    bid = b_res.json()["id"]
+
+    # Valid transition to quoted
+    res = client.post(f"/api/v1/bookings/{bid}/status", json={"status": "quoted"})
+    assert res.status_code == 200
+    assert res.json()["status"] == "quoted"
+
+    # Invalid transition from quoted directly to completed (must go through accepted -> in_progress -> work_done -> completed)
+    bad_res = client.post(f"/api/v1/bookings/{bid}/status", json={"status": "completed"})
+    assert bad_res.status_code == 400
+
+def test_contractor_worker_review():
+    res = client.post("/api/v1/contractor/workers/user-w1/review", json={
+        "contractor_id": "user-ct1",
+        "claim_id": "claim-1",
+        "verdict": "verified",
+        "note": "Excellent cable termination and distribution board wiring on site."
+    })
+    assert res.status_code == 200
+    data = res.json()
+    assert data["success"] is True
+    assert data["review"]["verdict"] == "verified"

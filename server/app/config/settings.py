@@ -14,6 +14,8 @@ class Settings(BaseSettings):
     ai_mode: str = os.getenv("AI_MODE", "live")
     sarvam_api_key: str = os.getenv("SARVAM_API_KEY", "")
     gemini_api_key: str = os.getenv("GEMINI_API_KEY", "")
+    cors_origins: str = os.getenv("CORS_ORIGINS", "*")
+    port: int = int(os.getenv("PORT", "8000"))
     storage_backend: str = os.getenv("STORAGE_BACKEND", "local")
     upload_dir: str = os.getenv("UPLOAD_DIR", "server/uploads")
 

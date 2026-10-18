@@ -2,8 +2,7 @@ import {
   Area, Skill, WorkerProfile, Claim, EvidenceItem,
   Booking, Quotation, Review, MatchedWorkerResult, User, ContractorProject
 } from '../types';
-
-const API_BASE = '/api/v1';
+const API_BASE = (import.meta.env.VITE_API_BASE || '/api/v1').replace(/\/$/, '');
 
 export const api = {
   // Reference
@@ -18,16 +17,33 @@ export const api = {
   },
 
   // Auth
-  requestOtp: async (phone: string, role = 'worker', name?: string) => {
+  signup: async (name: string, phone: string, role: string) => {
+    const res = await fetch(`${API_BASE}/auth/signup`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name, phone, role }),
+    });
+    if (!res.ok) {
+      const err = await res.json();
+      throw new Error(err.detail || 'Signup failed');
+    }
+    return res.json();
+  },
+
+  requestOtp: async (phone: string, role?: string, name?: string) => {
     const res = await fetch(`${API_BASE}/auth/otp/request`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ phone, role, name }),
     });
+    if (!res.ok) {
+      const err = await res.json();
+      throw new Error(err.detail || 'Failed to request OTP');
+    }
     return res.json();
   },
 
-  verifyOtp: async (phone: string, otp: string, role = 'worker', name?: string) => {
+  verifyOtp: async (phone: string, otp: string, role?: string, name?: string) => {
     const res = await fetch(`${API_BASE}/auth/otp/verify`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -36,6 +52,15 @@ export const api = {
     if (!res.ok) {
       const err = await res.json();
       throw new Error(err.detail || 'OTP Verification failed');
+    }
+    return res.json();
+  },
+
+  getWorkerContact: async (workerId: string) => {
+    const res = await fetch(`${API_BASE}/workers/${workerId}/contact`);
+    if (!res.ok) {
+      const err = await res.json();
+      throw new Error(err.detail || 'Failed to fetch worker contact');
     }
     return res.json();
   },
@@ -59,8 +84,21 @@ export const api = {
 
   voiceTranscribe: async (audioBlob: Blob): Promise<{ success: boolean; transcript: string; note: string; draft: any }> => {
     const formData = new FormData();
-    formData.append('file', audioBlob, 'speech_recording.wav');
+    const ext = audioBlob.type.includes('webm') ? 'webm' : audioBlob.type.includes('mp4') ? 'm4a' : audioBlob.type.includes('ogg') ? 'ogg' : 'wav';
+    formData.append('file', audioBlob, `speech_recording.${ext}`);
     const res = await fetch(`${API_BASE}/workers/voice-transcribe`, {
+      method: 'POST',
+      body: formData,
+    });
+    return res.json();
+  },
+
+  generalVoiceTranscribe: async (audioBlob: Blob, languageCode = 'unknown'): Promise<{ success: boolean; transcript: string; note: string; language_code: string }> => {
+    const formData = new FormData();
+    const ext = audioBlob.type.includes('webm') ? 'webm' : audioBlob.type.includes('mp4') ? 'm4a' : audioBlob.type.includes('ogg') ? 'ogg' : 'wav';
+    formData.append('file', audioBlob, `speech_recording.${ext}`);
+    formData.append('language_code', languageCode);
+    const res = await fetch(`${API_BASE}/voice/transcribe`, {
       method: 'POST',
       body: formData,
     });

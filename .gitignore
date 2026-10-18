@@ -37,3 +37,11 @@ server/uploads/
 Thumbs.db
 .idea/
 .vscode/
+
+# Project documentation (internal / root)
+AGENTSfinal.md
+ARCHITECTUREfinal.md
+PROJECT_STRUCTUREfinal.md
+github-workflow.md
+teammate-prompts.md
+

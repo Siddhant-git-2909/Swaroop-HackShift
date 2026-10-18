@@ -2,7 +2,20 @@ import {
   Area, Skill, WorkerProfile, Claim, EvidenceItem,
   Booking, Quotation, Review, MatchedWorkerResult, User, ContractorProject
 } from '../types';
+import { normalizeAudioBlobForUpload } from '../utils/audio';
 const API_BASE = (import.meta.env.VITE_API_BASE || '/api/v1').replace(/\/$/, '');
+
+async function buildAudioUpload(audioBlob: Blob, languageCode?: string) {
+  const uploadBlob = await normalizeAudioBlobForUpload(audioBlob);
+
+  const formData = new FormData();
+  const ext = uploadBlob.type.includes('wav') ? 'wav' : uploadBlob.type.includes('mp4') ? 'm4a' : uploadBlob.type.includes('ogg') ? 'ogg' : 'webm';
+  formData.append('file', uploadBlob, `speech_recording.${ext}`);
+  if (languageCode) {
+    formData.append('language_code', languageCode);
+  }
+  return formData;
+}
 
 export const api = {
   // Reference
@@ -83,9 +96,7 @@ export const api = {
   },
 
   voiceTranscribe: async (audioBlob: Blob): Promise<{ success: boolean; transcript: string; note: string; draft: any }> => {
-    const formData = new FormData();
-    const ext = audioBlob.type.includes('webm') ? 'webm' : audioBlob.type.includes('mp4') ? 'm4a' : audioBlob.type.includes('ogg') ? 'ogg' : 'wav';
-    formData.append('file', audioBlob, `speech_recording.${ext}`);
+    const formData = await buildAudioUpload(audioBlob);
     const res = await fetch(`${API_BASE}/workers/voice-transcribe`, {
       method: 'POST',
       body: formData,
@@ -94,10 +105,7 @@ export const api = {
   },
 
   generalVoiceTranscribe: async (audioBlob: Blob, languageCode = 'unknown'): Promise<{ success: boolean; transcript: string; note: string; language_code: string }> => {
-    const formData = new FormData();
-    const ext = audioBlob.type.includes('webm') ? 'webm' : audioBlob.type.includes('mp4') ? 'm4a' : audioBlob.type.includes('ogg') ? 'ogg' : 'wav';
-    formData.append('file', audioBlob, `speech_recording.${ext}`);
-    formData.append('language_code', languageCode);
+    const formData = await buildAudioUpload(audioBlob, languageCode);
     const res = await fetch(`${API_BASE}/voice/transcribe`, {
       method: 'POST',
       body: formData,

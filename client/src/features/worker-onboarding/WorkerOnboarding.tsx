@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { api } from '../../services/api';
 import { Area, Skill, WorkerProfile } from '../../types';
+import { getSupportedRecordingMimeType } from '../../utils/audio';
 import {
   Mic,
   MicOff,
@@ -86,18 +87,9 @@ export const WorkerOnboarding: React.FC<WorkerOnboardingProps> = ({ onProfileCre
         } 
       });
 
-      let mimeType = 'audio/webm';
-      if (!MediaRecorder.isTypeSupported('audio/webm')) {
-        if (MediaRecorder.isTypeSupported('audio/mp4')) {
-          mimeType = 'audio/mp4';
-        } else if (MediaRecorder.isTypeSupported('audio/ogg')) {
-          mimeType = 'audio/ogg';
-        } else {
-          mimeType = '';
-        }
-      }
+      const mimeType = getSupportedRecordingMimeType();
 
-      const mediaRecorder = mimeType
+      const mediaRecorder = mimeType && mimeType !== 'audio/wav'
         ? new MediaRecorder(stream, { mimeType })
         : new MediaRecorder(stream);
       mediaRecorderRef.current = mediaRecorder;

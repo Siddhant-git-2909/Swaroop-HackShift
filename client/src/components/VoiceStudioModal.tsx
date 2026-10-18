@@ -14,6 +14,7 @@ import {
   CheckCircle2
 } from 'lucide-react';
 import { api } from '../services/api';
+import { getSupportedRecordingMimeType } from '../utils/audio';
 
 interface VoiceStudioModalProps {
   isOpen: boolean;
@@ -74,19 +75,10 @@ export const VoiceStudioModal: React.FC<VoiceStudioModalProps> = ({
       });
       streamRef.current = stream;
 
-      let mimeType = 'audio/webm';
-      if (!MediaRecorder.isTypeSupported('audio/webm')) {
-        if (MediaRecorder.isTypeSupported('audio/mp4')) {
-          mimeType = 'audio/mp4';
-        } else if (MediaRecorder.isTypeSupported('audio/ogg')) {
-          mimeType = 'audio/ogg';
-        } else {
-          mimeType = '';
-        }
-      }
+      const mimeType = getSupportedRecordingMimeType();
 
-      const recorder = mimeType 
-        ? new MediaRecorder(stream, { mimeType }) 
+      const recorder = mimeType && mimeType !== 'audio/wav'
+        ? new MediaRecorder(stream, { mimeType })
         : new MediaRecorder(stream);
       mediaRecorderRef.current = recorder;
 

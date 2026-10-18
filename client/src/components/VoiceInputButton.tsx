@@ -1,6 +1,7 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { Mic, MicOff, Loader2, Sparkles, AlertCircle, Check } from 'lucide-react';
 import { api } from '../services/api';
+import { getSupportedRecordingMimeType } from '../utils/audio';
 
 interface VoiceInputButtonProps {
   onTranscript: (transcript: string) => void;
@@ -60,20 +61,10 @@ export const VoiceInputButton: React.FC<VoiceInputButtonProps> = ({
       });
       streamRef.current = stream;
 
-      // Prefer standard webm or mp4/wav
-      let mimeType = 'audio/webm';
-      if (!MediaRecorder.isTypeSupported('audio/webm')) {
-        if (MediaRecorder.isTypeSupported('audio/mp4')) {
-          mimeType = 'audio/mp4';
-        } else if (MediaRecorder.isTypeSupported('audio/ogg')) {
-          mimeType = 'audio/ogg';
-        } else {
-          mimeType = '';
-        }
-      }
+      const mimeType = getSupportedRecordingMimeType();
 
-      const recorder = mimeType 
-        ? new MediaRecorder(stream, { mimeType }) 
+      const recorder = mimeType && mimeType !== 'audio/wav'
+        ? new MediaRecorder(stream, { mimeType })
         : new MediaRecorder(stream);
       mediaRecorderRef.current = recorder;
 
